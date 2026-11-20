@@ -211,8 +211,11 @@ The library **automatically detects user activity** and resets the timer on any 
 | `warningDuration`   | `number`                          | No       | Show warning this many milliseconds before timeout (default: 60000) |
 | `onTimeout`         | `() => void`                      | Yes      | Callback when session times out                                     |
 | `onWarning`         | `(remainingTime: number) => void` | No       | Callback when warning period starts                                 |
+| `onError`           | `(error: unknown, source: SessionTimeoutErrorSource) => void` | No | Callback when a native timer operation fails. Replaces the default `console.error` logging. `source` is one of `'poll' \| 'start' \| 'reset' \| 'pause' \| 'resume' \| 'stop'` |
 | `enabled`           | `boolean`                         | No       | Enable/disable the timeout (default: true)                          |
 | `pauseOnBackground` | `boolean`                         | No       | Pause timer when app goes to background (default: false)            |
+
+> **Validation:** `timeout` must be a finite number greater than `0`, otherwise the timer does not start. `warningDuration` should be less than `timeout`, otherwise the warning triggers on the first poll. Misconfiguration is logged with `console.warn` in development.
 
 ### useSessionTimeout Hook
 

@@ -5,4 +5,5 @@ export type {
   SessionTimeoutState,
   SessionTimeoutControls,
   SessionTimeoutContextValue,
+  SessionTimeoutErrorSource,
 } from './types';

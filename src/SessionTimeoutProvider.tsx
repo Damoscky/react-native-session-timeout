@@ -19,7 +19,8 @@ const styles = StyleSheet.create({
 
 import { SessionTimeoutContext } from './SessionTimeoutContext';
 import NativeSessionTimeout from './NativeModule';
-import type { SessionTimeoutConfig } from './types';
+import type { SessionTimeoutConfig, SessionTimeoutErrorSource } from './types';
+import { isValidTimeout, validateSessionConfig } from './validateConfig';
 
 export function SessionTimeoutProvider({
   children,
@@ -27,6 +28,7 @@ export function SessionTimeoutProvider({
   warningDuration = 60000,
   onTimeout,
   onWarning,
+  onError,
   enabled = true,
   pauseOnBackground = false,
 }: PropsWithChildren<SessionTimeoutConfig>) {
@@ -47,6 +49,7 @@ export function SessionTimeoutProvider({
     warningDuration,
     onTimeout,
     onWarning,
+    onError,
   });
 
   // Update refs on every render
@@ -58,7 +61,32 @@ export function SessionTimeoutProvider({
     warningDuration,
     onTimeout,
     onWarning,
+    onError,
   };
+
+  // Report a native-bridge failure via onError when provided, otherwise fall
+  // back to logging (preserving the previous default behavior).
+  const reportError = useCallback(
+    (error: unknown, source: SessionTimeoutErrorSource) => {
+      const handler = stateRef.current.onError;
+      if (handler) {
+        handler(error, source);
+      } else {
+        console.error(`[react-native-session-timeout] ${source} error:`, error);
+      }
+    },
+    []
+  );
+
+  // Warn about invalid timing configuration in development.
+  useEffect(() => {
+    if (typeof __DEV__ !== 'undefined' && !__DEV__) {
+      return;
+    }
+    for (const message of validateSessionConfig(timeout, warningDuration)) {
+      console.warn(message);
+    }
+  }, [timeout, warningDuration]);
 
   // Poll function - extracted so we can call it immediately
   const pollRemainingTime = useCallback(async () => {
@@ -93,9 +121,9 @@ export function SessionTimeoutProvider({
         }
       }
     } catch (error) {
-      console.error('Error polling:', error);
+      reportError(error, 'poll');
     }
-  }, []);
+  }, [reportError]);
 
   // Start polling - polls immediately, then every second
 
@@ -127,9 +155,9 @@ export function SessionTimeoutProvider({
       warningTriggeredRef.current = false;
       startPolling();
     } catch (error) {
-      console.error('Error starting timer:', error);
+      reportError(error, 'start');
     }
-  }, [startPolling]);
+  }, [startPolling, reportError]);
 
   const resetTimer = useCallback(async () => {
     try {
@@ -140,9 +168,9 @@ export function SessionTimeoutProvider({
       stateRef.current.setIsActive(true);
       startPolling();
     } catch (error) {
-      console.error('Error resetting timer:', error);
+      reportError(error, 'reset');
     }
-  }, [startPolling]);
+  }, [startPolling, reportError]);
 
   const pauseTimer = useCallback(async () => {
     try {
@@ -150,9 +178,9 @@ export function SessionTimeoutProvider({
       stateRef.current.setIsActive(false);
       stopPolling();
     } catch (error) {
-      console.error('Error pausing timer:', error);
+      reportError(error, 'pause');
     }
-  }, [stopPolling]);
+  }, [stopPolling, reportError]);
 
   const resumeTimer = useCallback(async () => {
     try {
@@ -160,9 +188,9 @@ export function SessionTimeoutProvider({
       stateRef.current.setIsActive(true);
       startPolling();
     } catch (error) {
-      console.error('Error resuming timer:', error);
+      reportError(error, 'resume');
     }
-  }, [startPolling]);
+  }, [startPolling, reportError]);
 
   // Store resetTimer in ref for PanResponder
   const resetTimerRef = useRef(resetTimer);
@@ -199,15 +227,17 @@ export function SessionTimeoutProvider({
 
   // Initialize timer on mount
   useEffect(() => {
-    if (enabled) {
+    if (enabled && isValidTimeout(timeout)) {
       startTimer();
     }
 
     return () => {
       stopPolling();
-      NativeSessionTimeout.stopTimer?.().catch?.(console.error);
+      NativeSessionTimeout.stopTimer?.().catch?.((error: unknown) =>
+        reportError(error, 'stop')
+      );
     };
-  }, [enabled, startTimer, stopPolling]);
+  }, [enabled, timeout, startTimer, stopPolling, reportError]);
   //
   // Create pan responder
   const panResponder = useRef(
